@@ -110,10 +110,14 @@ public abstract class OAuthAuthenticator {
         final GenericUrl callbackUrl = new GenericUrl(redirectUri);
         callbackUrl.put(STATE_PARAM_KEY, requestUrl.getQuery());
 
-        final OAuthGetTemporaryToken getTemporaryToken = privateKey != null ? new OAuthPostTemporaryToken(requestTokenUri)
-                                                                            : new OAuthGetTemporaryToken(requestTokenUri);
+        GenericUrl genericUrl = new GenericUrl(requestUrl);
+        Boolean usePost = Boolean.valueOf(genericUrl.getFirst("use_post").toString());
+        String signatureMethod = String.valueOf(genericUrl.getFirst("signature_method").toString());
 
-        getTemporaryToken.signer = privateKey != null ? getOAuthRsaSigner() : getOAuthHmacSigner(null);
+        final OAuthGetTemporaryToken getTemporaryToken = (usePost != null && usePost) ? new OAuthPostTemporaryToken(requestTokenUri)
+                                                                                      : new OAuthGetTemporaryToken(requestTokenUri);
+
+        getTemporaryToken.signer = "rsa".equals(signatureMethod) ? getOAuthRsaSigner() : getOAuthHmacSigner(null, null);
         getTemporaryToken.consumerKey = clientId;
         getTemporaryToken.callback = callbackUrl.build();
         getTemporaryToken.transport = httpTransport;
@@ -143,7 +147,7 @@ public abstract class OAuthAuthenticator {
      * @throws OAuthAuthenticationException
      *         if authentication failed or {@code requestUrl} does not contain required parameters.
      */
-    public String callback(final URL requestUrl) throws OAuthAuthenticationException {
+    public String callback(final URL requestUrl) throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         try {
             final GenericUrl callbackUrl = new GenericUrl(requestUrl.toString());
 
@@ -155,18 +159,20 @@ public abstract class OAuthAuthenticator {
                 throw new OAuthAuthenticationException("Missing oauth_verifier parameter");
             }
 
+            Boolean usePost = Boolean.valueOf(callbackUrl.getFirst("use_post").toString());
+            String signatureMethod = String.valueOf(callbackUrl.getFirst("signature_method").toString());
+
             final String oauthTemporaryToken = (String)callbackUrl.getFirst(OAUTH_TOKEN_PARAM_KEY);
 
-            final OAuthHmacSigner signer = new OAuthHmacSigner();
-            signer.clientSharedSecret = clientSecret;
-            signer.tokenSharedSecret = sharedTokenSecrets.remove(oauthTemporaryToken);
-
-            final OAuthGetAccessToken getAccessToken = new OAuthGetAccessToken(accessTokenUri);
+            final OAuthGetAccessToken getAccessToken = (usePost != null && usePost) ? new OAuthPostAccessToken(accessTokenUri)
+                                                                                    : new OAuthGetAccessToken(accessTokenUri);
             getAccessToken.consumerKey = clientId;
             getAccessToken.temporaryToken = oauthTemporaryToken;
             getAccessToken.verifier = (String)callbackUrl.getFirst(OAUTH_VERIFIER_PARAM_KEY);
             getAccessToken.transport = httpTransport;
-            getAccessToken.signer = signer;
+            getAccessToken.signer = "rsa".equals(signatureMethod) ? getOAuthRsaSigner()
+                                                                  : getOAuthHmacSigner(clientSecret,
+                                                                                       sharedTokenSecrets.remove(oauthTemporaryToken));
 
             final OAuthCredentialsResponse credentials = getAccessToken.execute();
             final String state = (String)callbackUrl.getFirst(STATE_PARAM_KEY);
@@ -278,7 +284,7 @@ public abstract class OAuthAuthenticator {
      *         if an IO exception occurs.
      * @see org.eclipse.che.api.auth.oauth.OAuthTokenProvider#getToken(String, String)
      */
-    public OAuthToken getToken(final String userId) throws IOException {
+    private OAuthToken getToken(final String userId) throws IOException {
         OAuthCredentialsResponse credentials;
         credentialsStoreLock.lock();
         try {
@@ -356,9 +362,7 @@ public abstract class OAuthAuthenticator {
         genericRequestUrl.putAll(requestParameters);
 
         try {
-
             oauthParameters.computeSignature(requestMethod, genericRequestUrl);
-
         } catch (GeneralSecurityException e) {
             throw new RuntimeException(e);
         }
@@ -400,7 +404,8 @@ public abstract class OAuthAuthenticator {
         return oAuthRsaSigner;
     }
 
-    private OAuthHmacSigner getOAuthHmacSigner(String oauthTemporaryToken) throws NoSuchAlgorithmException, InvalidKeySpecException {
+    private OAuthHmacSigner getOAuthHmacSigner(@Nullable String clientSecret, @Nullable String oauthTemporaryToken)
+            throws NoSuchAlgorithmException, InvalidKeySpecException {
         final OAuthHmacSigner signer = new OAuthHmacSigner();
         signer.clientSharedSecret = clientSecret;
         signer.tokenSharedSecret = sharedTokenSecrets.remove(oauthTemporaryToken);

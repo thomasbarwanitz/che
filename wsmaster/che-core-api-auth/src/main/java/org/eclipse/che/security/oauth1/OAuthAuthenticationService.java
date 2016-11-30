@@ -14,15 +14,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
-import javax.inject.Named;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
+import javax.ws.rs.QueryParam;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.SecurityContext;
 import javax.ws.rs.core.UriInfo;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URI;
@@ -41,13 +42,9 @@ import java.util.Map;
  *
  * @author Kevin Pollet
  */
-@Path("/authdf")
-public class OAuth1AuthenticationService {
-    private static final Logger LOG = LoggerFactory.getLogger(OAuth1AuthenticationService.class);
-
-    @Inject
-    @Named("auth.oauth.access_denied_error_page")
-    protected String errorPage;
+@Path("oauth/1.0")
+public class OAuthAuthenticationService {
+    private static final Logger LOG = LoggerFactory.getLogger(OAuthAuthenticationService.class);
 
     @Inject
     protected OAuthAuthenticatorProvider providers;
@@ -78,7 +75,7 @@ public class OAuth1AuthenticationService {
      * @return typically Response that redirect user for OAuth provider site
      */
     @GET
-    @Path("/authenticate")
+    @Path("authenticate")
     public Response authenticate(@Context UriInfo uriInfo)
             throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         final OAuthAuthenticator oauth = getAuthenticator(uriInfo.getQueryParameters().getFirst("oauth_provider"));
@@ -89,15 +86,11 @@ public class OAuth1AuthenticationService {
     }
 
     @GET
-    @Path("/callback")
-    public Response callback(@Context UriInfo uriInfo) throws OAuthAuthenticationException {
+    @Path("callback")
+    public Response callback(@Context UriInfo uriInfo)
+            throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         final URL requestUrl = getRequestUrl(uriInfo);
         final Map<String, List<String>> params = getRequestParameters(getState(requestUrl));
-        final List<String> errorValues = uriInfo.getQueryParameters().get("error");
-        if (errorValues != null && errorValues.contains("access_denied")) {
-            return Response.temporaryRedirect(
-                    uriInfo.getRequestUriBuilder().replacePath(errorPage).replaceQuery(null).build()).build();
-        }
 
         final String providerName = getParameter(params, "oauth_provider");
         final OAuthAuthenticator oauth = getAuthenticator(providerName);
@@ -188,7 +181,7 @@ public class OAuth1AuthenticationService {
     }
 
     @GET
-    @Path("/invalidate")
+    @Path("invalidate")
     public Response invalidate(@Context UriInfo uriInfo, @Context SecurityContext security) {
         final Principal principal = security.getUserPrincipal();
         OAuthAuthenticator oauth = getAuthenticator(uriInfo.getQueryParameters().getFirst("oauth_provider"));
@@ -208,5 +201,19 @@ public class OAuth1AuthenticationService {
                                                       .build());
         }
         return oauth;
+    }
+
+    @GET
+    @Path("header")
+    public String getAuthorizationHeader(@QueryParam("provider_name") String oauthProviderName,
+                                         @QueryParam("method") String requestMethod,
+                                         @QueryParam("request_url") String requestUrl,
+                                         @QueryParam("user_id") String userId) throws IOException {
+
+        final OAuthAuthenticator oAuthAuthenticator = providers.getAuthenticator(oauthProviderName);
+        if (oAuthAuthenticator != null) {
+            return oAuthAuthenticator.computeAuthorizationHeader(userId, requestMethod, requestUrl, null);
+        }
+        return null;
     }
 }
