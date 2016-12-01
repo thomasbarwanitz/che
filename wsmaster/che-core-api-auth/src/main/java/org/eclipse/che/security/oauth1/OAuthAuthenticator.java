@@ -30,22 +30,21 @@ import javax.validation.constraints.NotNull;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivateKey;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static java.net.URLDecoder.decode;
-import static java.util.Collections.emptyMap;
-import static javax.ws.rs.HttpMethod.GET;
-import static javax.ws.rs.core.HttpHeaders.AUTHORIZATION;
 import static org.eclipse.che.dto.server.DtoFactory.newDto;
 
 /**
@@ -159,8 +158,10 @@ public abstract class OAuthAuthenticator {
                 throw new OAuthAuthenticationException("Missing oauth_verifier parameter");
             }
 
-            Boolean usePost = Boolean.valueOf(callbackUrl.getFirst("use_post").toString());
-            String signatureMethod = String.valueOf(callbackUrl.getFirst("signature_method").toString());
+            Map<String, List<String>> stateParameters = getStateParameters(callbackUrl.getFirst("state").toString());
+
+            Boolean usePost = Boolean.valueOf(stateParameters.get("use_post").get(0));
+            String signatureMethod = String.valueOf(stateParameters.get("signature_method").get(0));
 
             final String oauthTemporaryToken = (String)callbackUrl.getFirst(OAUTH_TOKEN_PARAM_KEY);
 
@@ -262,65 +263,27 @@ public abstract class OAuthAuthenticator {
     public String computeAuthorizationHeader(@NotNull final String userId,
                                              @NotNull final String requestMethod,
                                              @NotNull final String requestUrl,
-                                             @NotNull final Map<String, String> requestParameters) throws IOException {
+                                             @NotNull final Map<String, String> requestParameters)
+            throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
 
         final OAuthCredentialsResponse credentials = new OAuthCredentialsResponse();
-        credentials.token = getToken(userId).getToken();
-        if (credentials != null && credentials.token != null && credentials.tokenSecret != null) {
+        OAuthToken oauthToken = getToken(userId);
+        credentials.token = oauthToken != null ? oauthToken.getToken() : null;
+        if (credentials.token != null) {
             return computeAuthorizationHeader(requestMethod, requestUrl, requestParameters, credentials.token, credentials.tokenSecret);
         }
         return null;
     }
 
-    /**
-     * Return the authorization token fo the given user id.
-     * <p/>
-     * WARN!!!. DO not use it directly.
-     *
-     * @param userId
-     *         the user id.
-     * @return the user token.
-     * @throws java.io.IOException
-     *         if an IO exception occurs.
-     * @see org.eclipse.che.api.auth.oauth.OAuthTokenProvider#getToken(String, String)
-     */
-    private OAuthToken getToken(final String userId) throws IOException {
+    public OAuthToken getToken(final String userId) throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
         OAuthCredentialsResponse credentials;
         credentialsStoreLock.lock();
         try {
-
             credentials = credentialsStore.get(userId);
-
         } finally {
             credentialsStoreLock.unlock();
         }
-
-        if (credentials != null) {
-            // Need to check if token which stored is valid for requests, then if valid - we returns it to caller
-            HttpURLConnection connection = null;
-            try {
-
-                connection = (HttpURLConnection)new URL(verifyAccessTokenUri).openConnection();
-                connection.setInstanceFollowRedirects(false);
-
-                final String token = credentials.token;
-                final String tokenSecret = credentials.tokenSecret;
-                final Map<String, String> requestParameters = emptyMap();
-
-                connection.setRequestProperty(AUTHORIZATION,
-                                              computeAuthorizationHeader(GET, verifyAccessTokenUri, requestParameters, token, tokenSecret));
-
-                if (connection.getResponseCode() == 401) {
-                    return null;
-                }
-
-            } finally {
-                if (connection != null) {
-                    connection.disconnect();
-                }
-            }
-        }
-        return newDto(OAuthToken.class).withToken(credentials.token);
+        return newDto(OAuthToken.class).withToken(credentials.token).withScope(credentials.tokenSecret);
     }
 
     /**
@@ -343,15 +306,11 @@ public abstract class OAuthAuthenticator {
                                               @NotNull final String requestUrl,
                                               @NotNull final Map<String, String> requestParameters,
                                               @NotNull final String token,
-                                              @NotNull final String tokenSecret) {
-
-        final OAuthHmacSigner signer = new OAuthHmacSigner();
-        signer.clientSharedSecret = clientSecret;
-        signer.tokenSharedSecret = tokenSecret;
+                                              @NotNull final String tokenSecret) throws InvalidKeySpecException, NoSuchAlgorithmException {
 
         final OAuthParameters oauthParameters = new OAuthParameters();
         oauthParameters.consumerKey = clientId;
-        oauthParameters.signer = signer;
+        oauthParameters.signer = clientSecret == null ? getOAuthRsaSigner() : getOAuthHmacSigner(clientSecret, tokenSecret);
         oauthParameters.token = token;
         oauthParameters.version = "1.0";
 
@@ -359,7 +318,7 @@ public abstract class OAuthAuthenticator {
         oauthParameters.computeTimestamp();
 
         final GenericUrl genericRequestUrl = new GenericUrl(requestUrl);
-        genericRequestUrl.putAll(requestParameters);
+//        genericRequestUrl.putAll(requestParameters);
 
         try {
             oauthParameters.computeSignature(requestMethod, genericRequestUrl);
@@ -396,6 +355,42 @@ public abstract class OAuthAuthenticator {
             }
         }
         return null;
+    }
+
+    protected Map<String, List<String>> getStateParameters(String state) {
+        Map<String, List<String>> params = new HashMap<>();
+        if (!(state == null || state.isEmpty())) {
+            String decodedState;
+            try {
+                decodedState = URLDecoder.decode(state, "UTF-8");
+            } catch (UnsupportedEncodingException e) {
+                // should never happen, UTF-8 supported.
+                throw new RuntimeException(e.getMessage(), e);
+            }
+
+            for (String pair : decodedState.split("&")) {
+                if (!pair.isEmpty()) {
+                    String name;
+                    String value;
+                    int eq = pair.indexOf('=');
+                    if (eq < 0) {
+                        name = pair;
+                        value = "";
+                    } else {
+                        name = pair.substring(0, eq);
+                        value = pair.substring(eq + 1);
+                    }
+
+                    List<String> l = params.get(name);
+                    if (l == null) {
+                        l = new ArrayList<>();
+                        params.put(name, l);
+                    }
+                    l.add(value);
+                }
+            }
+        }
+        return params;
     }
 
     private OAuthRsaSigner getOAuthRsaSigner() throws NoSuchAlgorithmException, InvalidKeySpecException {

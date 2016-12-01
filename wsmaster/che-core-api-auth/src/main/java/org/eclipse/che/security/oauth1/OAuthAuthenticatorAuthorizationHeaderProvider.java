@@ -11,12 +11,14 @@
 package org.eclipse.che.security.oauth1;
 
 
-//import org.eclipse.che.api.auth.oauth.OAuthAuthorizationHeaderProvider;
+import org.eclipse.che.api.auth.oauth.OAuthAuthorizationHeaderProvider;
 
-import javax.validation.constraints.NotNull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import javax.validation.constraints.NotNull;
 import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
+import java.security.spec.InvalidKeySpecException;
 import java.util.Map;
 
 /**
@@ -25,8 +27,7 @@ import java.util.Map;
  * @author Kevin Pollet
  */
 @Singleton
-public class OAuthAuthenticatorAuthorizationHeaderProvider {
-//public class OAuthAuthenticatorAuthorizationHeaderProvider implements OAuthAuthorizationHeaderProvider {
+public class OAuthAuthenticatorAuthorizationHeaderProvider implements OAuthAuthorizationHeaderProvider {
     private final OAuthAuthenticatorProvider oAuthAuthenticatorProvider;
 
     @Inject
@@ -34,12 +35,13 @@ public class OAuthAuthenticatorAuthorizationHeaderProvider {
         this.oAuthAuthenticatorProvider = oAuthAuthenticatorProvider;
     }
 
-//    @Override
+    @Override
     public String getAuthorizationHeader(@NotNull final String oauthProviderName,
                                          @NotNull final String userId,
                                          @NotNull final String requestMethod,
                                          @NotNull final String requestUrl,
-                                         @NotNull final Map<String, String> requestParameters) throws IOException {
+                                         @NotNull final Map<String, String> requestParameters)
+            throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
 
         final OAuthAuthenticator oAuthAuthenticator = oAuthAuthenticatorProvider.getAuthenticator(oauthProviderName);
         if (oAuthAuthenticator != null) {

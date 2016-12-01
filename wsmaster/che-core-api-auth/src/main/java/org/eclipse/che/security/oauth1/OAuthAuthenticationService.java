@@ -10,12 +10,21 @@
  *******************************************************************************/
 package org.eclipse.che.security.oauth1;
 
+import org.eclipse.che.api.auth.shared.dto.OAuthToken;
+import org.eclipse.che.api.core.BadRequestException;
+import org.eclipse.che.api.core.ForbiddenException;
+import org.eclipse.che.api.core.NotFoundException;
+import org.eclipse.che.api.core.ServerException;
+import org.eclipse.che.api.core.rest.annotations.Required;
+import org.eclipse.che.commons.env.EnvironmentContext;
+import org.eclipse.che.commons.subject.Subject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
+import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Context;
@@ -99,6 +108,25 @@ public class OAuthAuthenticationService {
 
         final String redirectAfterLogin = getParameter(params, "redirect_after_login");
         return Response.temporaryRedirect(URI.create(redirectAfterLogin)).build();
+    }
+
+    @GET
+    @Path("token")
+    @Produces(MediaType.APPLICATION_JSON)
+    public OAuthToken token(@Required @QueryParam("oauth_provider") String oauthProvider,
+                            @QueryParam("user_id") String userId)
+            throws ServerException, BadRequestException, NotFoundException, ForbiddenException, InvalidKeySpecException,
+                   NoSuchAlgorithmException {
+        OAuthAuthenticator provider = getAuthenticator(oauthProvider);
+        try {
+            OAuthToken token = provider.getToken(userId);
+            if (token != null) {
+                return token;
+            }
+            throw new NotFoundException("OAuth token for user " + userId + " was not found");
+        } catch (IOException e) {
+            throw new ServerException(e.getLocalizedMessage(), e);
+        }
     }
 
     protected URL getRequestUrl(UriInfo uriInfo) {
@@ -204,11 +232,12 @@ public class OAuthAuthenticationService {
     }
 
     @GET
-    @Path("header")
-    public String getAuthorizationHeader(@QueryParam("provider_name") String oauthProviderName,
-                                         @QueryParam("method") String requestMethod,
+    @Path("authorization")
+    public String authorization(@QueryParam("oauth_provider") String oauthProviderName,
+                                         @QueryParam("request_method") String requestMethod,
                                          @QueryParam("request_url") String requestUrl,
-                                         @QueryParam("user_id") String userId) throws IOException {
+                                         @QueryParam("user_id") String userId)
+            throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
 
         final OAuthAuthenticator oAuthAuthenticator = providers.getAuthenticator(oauthProviderName);
         if (oAuthAuthenticator != null) {
