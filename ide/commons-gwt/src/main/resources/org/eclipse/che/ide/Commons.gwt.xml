@@ -19,7 +19,7 @@
 
     <source path=""/>
 
-    <set-property name="user.agent" value="safari, gecko1_8"/>
+    <set-property name="user.agent" value="gecko1_8"/>
 
     <!-- Allow for conditional compilation per user.agent with a single "if": -->
     <replace-with class="org.eclipse.che.ide.util.browser.UserAgentStaticProperties.FirefoxImpl">
