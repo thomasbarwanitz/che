@@ -606,6 +606,10 @@ public abstract class AbstractDebugger implements Debugger, DebuggerObservable {
 
     @Override
     public void suspend() {
+        if (!isConnected()) {
+            return;
+        }
+
         SuspendActionDto suspendAction = dtoFactory.createDto(SuspendActionDto.class);
         suspendAction.setType(Action.TYPE.SUSPEND);
 

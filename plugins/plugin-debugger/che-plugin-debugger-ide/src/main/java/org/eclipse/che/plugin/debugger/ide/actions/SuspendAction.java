@@ -64,6 +64,6 @@ public class SuspendAction extends AbstractPerspectiveAction {
 
         //Workaround: we don't support this action for another types of debugger
         presentation.setVisible("gdb".equals(debugger.getDebuggerType()));
-        presentation.setEnabled(!debugger.isSuspended());
+        presentation.setEnabled(debugger.isConnected() && !debugger.isSuspended());
     }
 }
