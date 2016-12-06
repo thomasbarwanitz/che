@@ -202,11 +202,6 @@ public class JavaDebugger implements EventsHandler, Debugger {
     }
 
     @Override
-    public void suspend() throws DebuggerException {
-        throw new DebuggerException("Unsupported operation for Java debugger implementation.");
-    }
-
-    @Override
     public void disconnect() throws DebuggerException {
         resume(newDto(ResumeActionDto.class));
         vm.dispose();

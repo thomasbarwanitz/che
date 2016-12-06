@@ -177,11 +177,6 @@ public class NodeJsDebugger implements Debugger {
     }
 
     @Override
-    public void suspend() throws DebuggerException {
-        throw new DebuggerException("Unsupported operation for NodeJs debugger implementation.");
-    }
-
-    @Override
     public void stepOver(StepOverAction action) throws DebuggerException {
         try {
             debuggerCallback.onEvent(new SuspendEventImpl(library.next()));

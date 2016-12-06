@@ -75,7 +75,9 @@ public interface Debugger {
      * @throws DebuggerException
      *         if any error occur
      */
-    void suspend() throws DebuggerException;
+    default void suspend() throws DebuggerException {
+        throw new DebuggerException("Unsupported operation for current debugger implementation.");
+    }
 
     /**
      * Adds given breakpoint. When breakpoint is accepted by server
